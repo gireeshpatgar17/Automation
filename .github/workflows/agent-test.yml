@@ -1,0 +1,73 @@
+name: Autonomous Developer Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  autonomous-task:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Run Gemini autonomous developer
+        uses: google-github-actions/run-gemini-cli@v0
+        env:
+          GEMINI_CLI_TRUST_WORKSPACE: "true"
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          prompt: |
+            You are the autonomous developer for this repository.
+
+            Your task for this run is to complete EXACTLY ONE
+            small, meaningful development task.
+
+            IMPORTANT RULES:
+
+            1. Read GEMINI.md.
+            2. Read PROJECT_PLAN.md.
+            3. Read AGENT_RULES.md.
+            4. Inspect the current repository.
+            5. Identify the FIRST appropriate incomplete task
+               from PROJECT_PLAN.md.
+            6. Implement only that one task.
+            7. Keep the change small and focused.
+            8. Do not modify .github/workflows/.
+            9. Do not modify GEMINI.md.
+            10. Do not modify AGENT_RULES.md.
+            11. Never expose secrets.
+            12. Never use force push.
+            13. Run appropriate tests.
+            14. If tests fail because of your changes,
+                fix the problem if it is reasonably small.
+            15. If the task cannot be completed safely,
+                do not commit it.
+            16. Review the final git diff.
+            17. Do not make unrelated changes.
+
+            IMPORTANT GIT RULE:
+
+            You are responsible for implementing the task,
+            but DO NOT create the final Git commit yourself.
+
+            The GitHub Actions workflow will inspect the changes
+            and create the commit after Gemini finishes.
+
+            At the end, provide a concise summary containing:
+            - task completed
+            - files changed
+            - tests executed
+            - test result
