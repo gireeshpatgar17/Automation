@@ -8,9 +8,9 @@ Build an NLP-powered Resume/JD Matcher that analyzes a candidate's resume agains
 
 # Phase 1 — Project Foundation
 
-- [ ] Create clean Python project structure
+- [x] Create clean Python project structure
 - [ ] Add dependency management
-- [ ] Add `.gitignore`
+- [x] Add `.gitignore`
 - [ ] Add configuration system
 - [ ] Add basic application entry point
 - [ ] Add logging
