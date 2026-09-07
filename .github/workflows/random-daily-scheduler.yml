@@ -3,7 +3,7 @@ name: Random Daily Scheduler
 on:
   schedule:
     # Check every 15 minutes.
-    - cron: "*/15 * * * *"
+    - cron: "*/5 * * * *"
 
   workflow_dispatch:
 
@@ -30,7 +30,7 @@ jobs:
 
           # 60 possible slots:
           # 08:00, 08:15, ... 22:45 IST
-          SLOT=$((NUMBER % 60))
+          SLOT=0
 
           TARGET_MINUTES=$((8 * 60 + SLOT * 15))
 
