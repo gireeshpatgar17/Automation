@@ -60,7 +60,6 @@ jobs:
 
       - name: Run Gemini autonomous developer
         id: gemini
-        continue-on-error: true
         uses: google-github-actions/run-gemini-cli@v0
         env:
           GEMINI_CLI_TRUST_WORKSPACE: "true"
