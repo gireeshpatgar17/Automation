@@ -2,6 +2,7 @@ name: Random Daily Scheduler
 
 on:
   schedule:
+    # Check every 15 minutes.
     - cron: "*/15 * * * *"
 
   workflow_dispatch:
@@ -11,23 +12,24 @@ permissions:
   contents: read
 
 jobs:
-  schedule-check:
+  schedule-development:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Calculate today's target time
-        id: target
+      - name: Calculate today's execution time
+        id: calculate
         shell: bash
         run: |
           set -e
 
           TODAY=$(TZ=Asia/Kolkata date +%Y-%m-%d)
 
+          # Deterministic daily seed.
           SEED=$(printf '%s' "$TODAY" | sha256sum | cut -c1-8)
           NUMBER=$((16#$SEED))
 
           # 60 possible 15-minute slots:
-          # 08:00 through 22:45 IST
+          # 08:00, 08:15, ... 22:45
           SLOT=$((NUMBER % 60))
 
           TOTAL_MINUTES=$((8 * 60 + SLOT * 15))
@@ -42,36 +44,67 @@ jobs:
           CURRENT_MINUTE=$(TZ=Asia/Kolkata date +%M)
 
           CURRENT_TOTAL=$((10#$CURRENT_HOUR * 60 + 10#$CURRENT_MINUTE))
+          TARGET_TOTAL=$TOTAL_MINUTES
 
-          echo "today=$TODAY" >> "$GITHUB_OUTPUT"
+          echo "Today: $TODAY"
+          echo "Target time: $TARGET_TIME IST"
+          echo "Current time: ${CURRENT_HOUR}:${CURRENT_MINUTE} IST"
+
+          # Store values for later steps.
           echo "target_time=$TARGET_TIME" >> "$GITHUB_OUTPUT"
-          echo "target_minutes=$TOTAL_MINUTES" >> "$GITHUB_OUTPUT"
-          echo "current_minutes=$CURRENT_TOTAL" >> "$GITHUB_OUTPUT"
+          echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
 
-          echo "Today's target: $TARGET_TIME IST"
-          echo "Current time:   $CURRENT_HOUR:$CURRENT_MINUTE IST"
+          # Only trigger when we're inside the target 15-minute slot.
+          if [ "$CURRENT_TOTAL" -ge "$TARGET_TOTAL" ] && \
+             [ "$CURRENT_TOTAL" -lt "$((TARGET_TOTAL + 15))" ]; then
+            echo "run_now=true" >> "$GITHUB_OUTPUT"
+            echo "It is today's execution window."
+          else
+            echo "run_now=false" >> "$GITHUB_OUTPUT"
+            echo "Not today's execution window."
+          fi
 
-      - name: Trigger development workflow
-        if: steps.target.outputs.current_minutes == steps.target.outputs.target_minutes
+      - name: Select daily task count
+        id: tasks
+        if: steps.calculate.outputs.run_now == 'true'
+        shell: bash
+        run: |
+          # Deterministically choose 1-7 tasks for today's run.
+          TODAY=$(TZ=Asia/Kolkata date +%Y-%m-%d)
+
+          SEED=$(printf '%s-task-count' "$TODAY" | sha256sum | cut -c1-8)
+          NUMBER=$((16#$SEED))
+
+          TASK_COUNT=$((NUMBER % 7 + 1))
+
+          echo "Today's autonomous task count: $TASK_COUNT"
+          echo "task_count=$TASK_COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger autonomous development
+        if: steps.calculate.outputs.run_now == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "Target time reached."
-          echo "Starting autonomous development workflow..."
+          TASK_COUNT="${{ steps.tasks.outputs.task_count }}"
 
-          gh workflow run daily-development.yml \
-            --repo "${{ github.repository }}" \
-            --ref "${{ github.event.repository.default_branch }}"
+          echo "Triggering Daily Autonomous Development"
+          echo "Task count: $TASK_COUNT"
 
-          echo "Development workflow triggered."
+          gh workflow run "daily-development.yml" \
+            --ref "${{ github.event.repository.default_branch }}" \
+            -f task_count="$TASK_COUNT"
 
-      - name: Wait for today's target
-        if: steps.target.outputs.current_minutes != steps.target.outputs.target_minutes
+      - name: Scheduler status
+        shell: bash
         run: |
-          echo "Today's target time:"
-          echo "${{ steps.target.outputs.target_time }} IST"
+          echo "========================================"
+          echo "Random Daily Scheduler"
+          echo "========================================"
+          echo "Target: ${{ steps.calculate.outputs.target_time }} IST"
+          echo "Run now: ${{ steps.calculate.outputs.run_now }}"
 
-          echo "Current time:"
-          TZ=Asia/Kolkata date '+%H:%M IST'
-
-          echo "Not time yet. Nothing will be triggered."
+          if [ "${{ steps.calculate.outputs.run_now }}" = "true" ]; then
+            echo "Development workflow has been triggered."
+          else
+            echo "No development run triggered this check."
+          fi
