@@ -2,10 +2,15 @@ name: Random Daily Scheduler
 
 on:
   schedule:
-    # Check every 15 minutes.
     - cron: "*/15 * * * *"
 
   workflow_dispatch:
+    inputs:
+      force_run:
+        description: "Trigger development immediately for testing"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   actions: write
@@ -24,12 +29,11 @@ jobs:
 
           TODAY=$(TZ=Asia/Kolkata date +%Y-%m-%d)
 
-          # Deterministic daily seed.
           SEED=$(printf '%s' "$TODAY" | sha256sum | cut -c1-8)
           NUMBER=$((16#$SEED))
 
           # 60 possible 15-minute slots:
-          # 08:00, 08:15, ... 22:45
+          # 08:00 through 22:45
           SLOT=$((NUMBER % 60))
 
           TOTAL_MINUTES=$((8 * 60 + SLOT * 15))
@@ -50,18 +54,27 @@ jobs:
           echo "Target time: $TARGET_TIME IST"
           echo "Current time: ${CURRENT_HOUR}:${CURRENT_MINUTE} IST"
 
-          # Store values for later steps.
           echo "target_time=$TARGET_TIME" >> "$GITHUB_OUTPUT"
-          echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
 
-          # Only trigger when we're inside the target 15-minute slot.
-          if [ "$CURRENT_TOTAL" -ge "$TARGET_TOTAL" ] && \
-             [ "$CURRENT_TOTAL" -lt "$((TARGET_TOTAL + 15))" ]; then
+          # Manual forced test
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && \
+             [ "${{ inputs.force_run }}" = "true" ]; then
+
+            echo "run_now=true" >> "$GITHUB_OUTPUT"
+            echo "FORCE RUN enabled — triggering development workflow."
+
+          # Normal scheduled execution
+          elif [ "$CURRENT_TOTAL" -ge "$TARGET_TOTAL" ] && \
+               [ "$CURRENT_TOTAL" -lt "$((TARGET_TOTAL + 15))" ]; then
+
             echo "run_now=true" >> "$GITHUB_OUTPUT"
             echo "It is today's execution window."
+
           else
+
             echo "run_now=false" >> "$GITHUB_OUTPUT"
             echo "Not today's execution window."
+
           fi
 
       - name: Select daily task count
