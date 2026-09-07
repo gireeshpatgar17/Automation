@@ -5,12 +5,6 @@ on:
     - cron: "*/15 * * * *"
 
   workflow_dispatch:
-    inputs:
-      force_run:
-        description: "Trigger development immediately for testing"
-        required: true
-        default: false
-        type: boolean
 
 permissions:
   actions: write
@@ -56,16 +50,8 @@ jobs:
 
           echo "target_time=$TARGET_TIME" >> "$GITHUB_OUTPUT"
 
-          # Manual forced test
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && \
-             [ "${{ inputs.force_run }}" = "true" ]; then
-
-            echo "run_now=true" >> "$GITHUB_OUTPUT"
-            echo "FORCE RUN enabled — triggering development workflow."
-
-          # Normal scheduled execution
-          elif [ "$CURRENT_TOTAL" -ge "$TARGET_TOTAL" ] && \
-               [ "$CURRENT_TOTAL" -lt "$((TARGET_TOTAL + 15))" ]; then
+          if [ "$CURRENT_TOTAL" -ge "$TARGET_TOTAL" ] && \
+             [ "$CURRENT_TOTAL" -lt "$((TARGET_TOTAL + 15))" ]; then
 
             echo "run_now=true" >> "$GITHUB_OUTPUT"
             echo "It is today's execution window."
