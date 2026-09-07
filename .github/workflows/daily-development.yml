@@ -1,11 +1,18 @@
-name: Stage 6 - Gemini Multi-Task Developer
+name: Daily Autonomous Development
 
 on:
+  # Automatic daily run.
+  # GitHub uses the repository's timezone unless timezone is specified.
+  schedule:
+    - cron: "0 9 * * *"
+      timezone: "Asia/Kolkata"
+
+  # Keep manual execution available for testing.
   workflow_dispatch:
     inputs:
       task_count:
-        description: "Number of microtasks Gemini should attempt"
-        required: true
+        description: "Number of microtasks (1-7)"
+        required: false
         default: "2"
 
 permissions:
@@ -28,6 +35,25 @@ jobs:
           git config user.email "142138870+gireeshpatgar17@users.noreply.github.com"
           git config commit.gpgsign false
 
+      - name: Select daily task count
+        id: tasks
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && \
+             [ -n "${{ inputs.task_count }}" ]; then
+            TASK_COUNT="${{ inputs.task_count }}"
+          else
+            TASK_COUNT=$(( RANDOM % 7 + 1 ))
+          fi
+
+          if ! [[ "$TASK_COUNT" =~ ^[1-7]$ ]]; then
+            echo "Invalid task count: $TASK_COUNT"
+            exit 1
+          fi
+
+          echo "Today's microtask target: $TASK_COUNT"
+          echo "task_count=$TASK_COUNT" >> "$GITHUB_OUTPUT"
+
       - name: Record starting commit
         run: |
           echo "BASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
@@ -38,11 +64,8 @@ jobs:
         uses: google-github-actions/run-gemini-cli@v0
         with:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-
-          # Explicitly pin the model instead of using the CLI default.
           gemini_model: gemini-3.8-flash
 
-          # Prevent an uncontrolled long-running agent session.
           settings: |
             {
               "model": {
@@ -53,111 +76,80 @@ jobs:
           prompt: |
             You are the autonomous developer for this repository.
 
-            Read these files before doing anything:
+            First read:
             - GEMINI.md
             - PROJECT_PLAN.md
             - AGENT_RULES.md
 
-            Your goal during this run is to complete UP TO
-            ${{ inputs.task_count }}
-            meaningful microtasks for the Resume/JD Matcher project.
+            Today's target is:
+            ${{ steps.tasks.outputs.task_count }} microtasks.
 
-            IMPORTANT EXECUTION RULES:
+            Your job is to progressively develop the actual
+            Resume/JD Matcher project.
 
-            1. Work on ONE microtask at a time.
+            RULES:
 
-            2. Select the next useful incomplete task from PROJECT_PLAN.md
-               based on the current state of the repository.
+            1. Inspect the current repository before choosing work.
 
-            3. Each microtask must:
-               - contribute meaningfully to the Resume/JD Matcher
+            2. Select meaningful incomplete tasks from PROJECT_PLAN.md.
+
+            3. Work on ONE microtask at a time.
+
+            4. Each microtask must:
+               - meaningfully improve the project
                - be small and focused
                - preserve existing functionality
-               - include appropriate tests or validation where practical
+               - be testable
 
-            4. After implementing EACH microtask:
+            5. After each microtask:
                - inspect the changes
-               - run appropriate tests or validation
-               - fix small problems if necessary
+               - run appropriate tests/validation
+               - fix reasonable problems
 
-            5. ONLY when that microtask is successfully validated:
-               stage ONLY the files belonging to that microtask and create
-               ONE Git commit.
+            6. After successful validation, create ONE Git commit
+               for that microtask.
 
-            6. Use a clear conventional commit message such as:
-               feat: add PDF resume text extraction
-               test: add text cleaning tests
-               refactor: organize resume parser module
+            7. One microtask = one commit.
 
-            7. Therefore:
-               ONE completed microtask = ONE Git commit.
-
-            8. DO NOT push commits.
-               The GitHub Actions workflow will push them after you finish.
+            8. DO NOT push anything.
+               GitHub Actions will push the commits.
 
             9. NEVER modify:
                - .github/workflows/*
                - GEMINI.md
                - AGENT_RULES.md
 
-            10. Do not:
-                - make meaningless edits
+            10. NEVER:
+                - create meaningless commits
                 - make whitespace-only changes
-                - create fake contribution commits
+                - fabricate project progress
                 - force push
-                - rewrite Git history
+                - rewrite history
                 - expose secrets
-                - modify GitHub settings
 
-            11. If a microtask fails:
-                - revert its uncommitted changes
-                - do not commit it
-                - stop if continuing would be unsafe
+            11. If a task cannot be safely completed:
+                revert its uncommitted changes and move on only if safe.
 
-            12. Do not combine multiple microtasks into one commit.
+            12. Stop when:
+                - the requested number of meaningful tasks is completed, OR
+                - no safe meaningful task remains, OR
+                - the Gemini/API quota prevents continued work.
 
-            13. Stop when either:
-                - ${{ inputs.task_count }} successful microtasks have been
-                  completed and committed, OR
-                - no safe meaningful microtask can currently be completed.
+            Do not manufacture work merely to reach the task count.
 
-            Work autonomously. Inspect the repository before choosing tasks.
-
-      # If Gemini hits quota halfway through, previously completed commits
-      # remain, while incomplete uncommitted work is removed.
       - name: Remove unfinished changes
         if: always()
         run: |
           git reset --hard HEAD
           git clean -fd -e gemini-artifacts/
 
-      - name: Verify autonomous commits
-        if: always()
-        run: |
-          echo "Starting commit: $BASE_SHA"
-          echo "Current commit:  $(git rev-parse HEAD)"
-
-          COMMIT_COUNT=$(git rev-list --count "$BASE_SHA"..HEAD)
-
-          echo "Gemini completed $COMMIT_COUNT commit(s)."
-
-          if [ "$COMMIT_COUNT" -eq 0 ]; then
-            echo "No completed microtasks were committed."
-            exit 0
-          fi
-
-          echo ""
-          echo "Commits created:"
-          git log --oneline "$BASE_SHA"..HEAD
-
-          echo ""
-          echo "Files changed:"
-          git diff --name-only "$BASE_SHA"..HEAD
-
       - name: Safety check protected files
         if: always()
         run: |
-          if [ "$(git rev-list --count "$BASE_SHA"..HEAD)" -eq 0 ]; then
+          COMMIT_COUNT=$(git rev-list --count "$BASE_SHA"..HEAD)
+
+          if [ "$COMMIT_COUNT" -eq 0 ]; then
+            echo "No commits were created."
             exit 0
           fi
 
@@ -165,15 +157,27 @@ jobs:
 
           if echo "$CHANGED_FILES" | grep -E \
             '^(\.github/workflows/|GEMINI\.md$|AGENT_RULES\.md$)'; then
-
-            echo "ERROR: Gemini modified a protected automation file."
-            echo "No autonomous commits will be pushed."
-
+            echo "ERROR: Protected file was modified."
             git reset --hard "$BASE_SHA"
             exit 1
           fi
 
-      - name: Push completed microtasks
+      - name: Show completed work
+        if: always()
+        run: |
+          COMMIT_COUNT=$(git rev-list --count "$BASE_SHA"..HEAD)
+
+          echo "========================================"
+          echo "Daily autonomous development summary"
+          echo "Target: ${{ steps.tasks.outputs.task_count }}"
+          echo "Completed commits: $COMMIT_COUNT"
+          echo "========================================"
+
+          if [ "$COMMIT_COUNT" -gt 0 ]; then
+            git log --oneline "$BASE_SHA"..HEAD
+          fi
+
+      - name: Push completed work
         if: always()
         run: |
           COMMIT_COUNT=$(git rev-list --count "$BASE_SHA"..HEAD)
@@ -183,5 +187,4 @@ jobs:
             exit 0
           fi
 
-          echo "Pushing $COMMIT_COUNT completed microtask commit(s)..."
-          git push origin HEAD:${{ github.ref_name }}
+          git push origin HEAD:${{ github.event.repository.default_branch }}
