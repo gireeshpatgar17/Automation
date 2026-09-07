@@ -3,20 +3,20 @@ name: Random Daily Scheduler
 on:
   schedule:
     # Check every 15 minutes.
-    - cron: "*/5 * * * *"
+    - cron: "*/15 * * * *"
 
   workflow_dispatch:
 
 permissions:
   actions: write
-  contents: read
+  contents: write
 
 jobs:
   schedule-check:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Calculate today's target window
+      - name: Calculate today's target time
         id: target
         shell: bash
         run: |
@@ -24,15 +24,21 @@ jobs:
 
           TODAY=$(TZ=Asia/Kolkata date +%Y-%m-%d)
 
-          # Deterministic daily pseudo-random seed.
+          # Generate one deterministic target for today's date.
           SEED=$(printf '%s' "$TODAY" | sha256sum | cut -c1-8)
           NUMBER=$((16#$SEED))
 
-          # 60 possible slots:
+          # 60 possible 15-minute slots:
           # 08:00, 08:15, ... 22:45 IST
-          SLOT=0
+          SLOT=$((NUMBER % 60))
 
           TARGET_MINUTES=$((8 * 60 + SLOT * 15))
+
+          TARGET_HOUR=$((TARGET_MINUTES / 60))
+          TARGET_MINUTE=$((TARGET_MINUTES % 60))
+
+          printf -v TARGET_TIME "%02d:%02d" \
+            "$TARGET_HOUR" "$TARGET_MINUTE"
 
           CURRENT_HOUR=$(TZ=Asia/Kolkata date +%H)
           CURRENT_MINUTE=$(TZ=Asia/Kolkata date +%M)
@@ -41,17 +47,13 @@ jobs:
             (10#$CURRENT_HOUR * 60 + 10#$CURRENT_MINUTE)
           )
 
-          TARGET_HOUR=$((TARGET_MINUTES / 60))
-          TARGET_MINUTE=$((TARGET_MINUTES % 60))
-
-          printf -v TARGET_TIME "%02d:%02d" \
-            "$TARGET_HOUR" "$TARGET_MINUTE"
-
           echo "today=$TODAY" >> "$GITHUB_OUTPUT"
+          echo "target_time=$TARGET_TIME" >> "$GITHUB_OUTPUT"
           echo "target_minutes=$TARGET_MINUTES" >> "$GITHUB_OUTPUT"
           echo "current_minutes=$CURRENT_MINUTES" >> "$GITHUB_OUTPUT"
-          echo "target_time=$TARGET_TIME" >> "$GITHUB_OUTPUT"
 
+          echo "========================================"
+          echo "Random Daily Scheduler"
           echo "========================================"
           echo "Date:          $TODAY"
           echo "Target time:   $TARGET_TIME IST"
@@ -59,43 +61,61 @@ jobs:
           echo "========================================"
 
       - name: Check whether today's run already happened
-        id: already
+        id: check
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
         run: |
-          set -e
-
           TODAY="${{ steps.target.outputs.today }}"
 
-          RUNS=$(gh run list \
+          # Look for a successful Daily Autonomous Development run
+          # created today.
+          RUN_COUNT=$(gh run list \
             --repo "${{ github.repository }}" \
-            --workflow daily-development.yml \
+            --workflow "daily-development.yml" \
             --limit 20 \
-            --json status,conclusion,createdAt \
-            --jq ".[] |
+            --json createdAt,status \
+            --jq "[.[] |
               select(.createdAt | startswith(\"$TODAY\")) |
-              select(.status == \"completed\" or .status == \"in_progress\")")
+              select(.status == \"completed\")] |
+              length")
 
-          if [ -n "$RUNS" ]; then
-            echo "Today's development workflow already ran."
-            echo "already=true" >> "$GITHUB_OUTPUT"
+          echo "Completed development runs today: $RUN_COUNT"
+
+          if [ "$RUN_COUNT" -gt 0 ]; then
+            echo "already_ran=true" >> "$GITHUB_OUTPUT"
           else
-            echo "No development run found today."
-            echo "already=false" >> "$GITHUB_OUTPUT"
+            echo "already_ran=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Decide whether to trigger development
+        id: decision
+        run: |
+          TARGET=${{ steps.target.outputs.target_minutes }}
+          CURRENT=${{ steps.target.outputs.current_minutes }}
+
+          # Allow a 15-minute tolerance window.
+          # This protects against GitHub's scheduled-workflow delays.
+          LOWER=$((TARGET - 7))
+          UPPER=$((TARGET + 8))
+
+          if [ "$CURRENT" -ge "$LOWER" ] && \
+             [ "$CURRENT" -lt "$UPPER" ]; then
+            echo "within_window=true" >> "$GITHUB_OUTPUT"
+            echo "We are within today's execution window."
+          else
+            echo "within_window=false" >> "$GITHUB_OUTPUT"
+            echo "Outside today's execution window."
           fi
 
       - name: Trigger autonomous development
         if: |
-          steps.already.outputs.already == 'false' &&
-          steps.target.outputs.current_minutes >= steps.target.outputs.target_minutes &&
-          steps.target.outputs.current_minutes < steps.target.outputs.target_minutes + 15
+          steps.check.outputs.already_ran == 'false' &&
+          steps.decision.outputs.within_window == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           echo "========================================"
-          echo "TARGET WINDOW REACHED"
-          echo "Starting autonomous development..."
+          echo "STARTING DAILY AUTONOMOUS DEVELOPMENT"
           echo "========================================"
 
           gh workflow run daily-development.yml \
@@ -104,20 +124,14 @@ jobs:
 
           echo "Development workflow triggered successfully."
 
-      - name: Not today's target window
+      - name: Nothing to trigger
         if: |
-          steps.already.outputs.already == 'false' &&
-          (
-            steps.target.outputs.current_minutes < steps.target.outputs.target_minutes ||
-            steps.target.outputs.current_minutes >= steps.target.outputs.target_minutes + 15
-          )
+          steps.check.outputs.already_ran == 'true' ||
+          steps.decision.outputs.within_window == 'false'
         run: |
-          echo "Not the target window yet."
-          echo "Target: ${{ steps.target.outputs.target_time }} IST"
-          echo "Current: $(TZ=Asia/Kolkata date '+%H:%M IST')"
-
-      - name: Already completed today
-        if: steps.already.outputs.already == 'true'
-        run: |
-          echo "Today's autonomous development run has already happened."
-          echo "No duplicate run will be triggered."
+          if [ "${{ steps.check.outputs.already_ran }}" = "true" ]; then
+            echo "Today's autonomous development has already run."
+          else
+            echo "It is not today's target execution window."
+            echo "Target: ${{ steps.target.outputs.target_time }} IST"
+          fi
