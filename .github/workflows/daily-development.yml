@@ -1,0 +1,147 @@
+name: Autonomous Daily Development
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  daily-development:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Determine number of tasks
+        id: tasks
+        run: |
+          TASK_COUNT=$(( RANDOM % 7 + 1 ))
+
+          echo "Today's task count: $TASK_COUNT"
+
+          echo "count=$TASK_COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Execute autonomous tasks
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          TASK_COUNT: ${{ steps.tasks.outputs.count }}
+          GEMINI_CLI_TRUST_WORKSPACE: "true"
+        run: |
+          for ((i=1; i<=TASK_COUNT; i++))
+          do
+            echo ""
+            echo "========================================"
+            echo "Starting task $i of $TASK_COUNT"
+            echo "========================================"
+
+            git status --short
+
+            npx @google/gemini-cli@latest \
+              --prompt "
+              You are the autonomous developer for this repository.
+
+              This is autonomous task $i of $TASK_COUNT for today's
+              development session.
+
+              Read:
+              - GEMINI.md
+              - PROJECT_PLAN.md
+              - AGENT_RULES.md
+
+              Inspect the current repository state.
+
+              Select ONE small, meaningful, currently incomplete
+              development task that advances the project.
+
+              IMPORTANT:
+              - Complete exactly ONE task.
+              - Do not combine multiple independent features.
+              - Do not make meaningless changes.
+              - Do not modify .github/workflows/.
+              - Do not modify GEMINI.md.
+              - Do not modify AGENT_RULES.md.
+              - Do not expose secrets.
+              - Do not use force push.
+              - Do not rewrite Git history.
+              - Do not create a commit.
+              - Do not push anything.
+
+              Implement the task.
+
+              Run appropriate tests.
+
+              If tests fail because of your changes, fix them
+              if the fix is reasonably small.
+
+              Review the resulting git diff.
+
+              If the task cannot be completed safely, leave the
+              repository unchanged.
+
+              At the end, report:
+              - task completed
+              - files changed
+              - tests executed
+              - test result
+              "
+            
+            echo ""
+            echo "Checking result of task $i..."
+
+            if [ -z "$(git status --porcelain)" ]; then
+              echo "No changes were produced."
+              echo "Stopping today's automation."
+              exit 0
+            fi
+
+            echo "Changes detected:"
+            git status --short
+
+            echo ""
+            echo "Diff summary:"
+            git diff --stat
+
+            echo ""
+            echo "Running tests before commit..."
+
+            if [ -f "pyproject.toml" ] || [ -d "tests" ]; then
+              if command -v pytest >/dev/null 2>&1; then
+                pytest
+              else
+                echo "pytest is not installed."
+              fi
+            else
+              echo "No test suite exists yet."
+            fi
+
+            echo ""
+            echo "Creating commit..."
+
+            git add .
+
+            git commit \
+              -m "feat: complete autonomous task $i"
+
+            git push
+
+            echo ""
+            echo "Task $i committed successfully."
+
+          done
+
+          echo ""
+          echo "========================================"
+          echo "Daily automation completed."
+          echo "Tasks attempted: $TASK_COUNT"
+          echo "========================================"
