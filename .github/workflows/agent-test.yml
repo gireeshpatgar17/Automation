@@ -71,3 +71,40 @@ jobs:
             - files changed
             - tests executed
             - test result
+
+      # 👇 STEP 5.5 STARTS HERE
+      - name: Show changes
+        run: |
+          echo "Changed files:"
+          git status --short
+
+          echo ""
+          echo "Diff:"
+          git diff --stat
+
+      - name: Run tests
+        run: |
+          if [ -f "pyproject.toml" ] || [ -d "tests" ]; then
+            if command -v pytest >/dev/null 2>&1; then
+              pytest
+            else
+              echo "pytest is not installed yet."
+              echo "Skipping test execution."
+            fi
+          else
+            echo "No test suite exists yet."
+            echo "Skipping tests."
+          fi
+
+      - name: Commit changes
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No changes were produced."
+            exit 0
+          fi
+
+          git add .
+
+          git commit -m "feat: complete autonomous development task"
+
+          git push
