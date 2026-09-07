@@ -71,7 +71,7 @@ jobs:
           settings: |
             {
               "model": {
-                "maxSessionTurns": 10
+                "maxSessionTurns": 20
               }
             }
 
