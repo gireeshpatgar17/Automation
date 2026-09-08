@@ -58,52 +58,36 @@ jobs:
         run: |
           opencode models openrouter --refresh
 
-      - name: Run DeepSeek coding agent
+      - name: Test OpenRouter directly
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          opencode run \
-            --model "openrouter/free" \
-            --auto \
-            "You are working on the Resume/JD Matcher project.
-
-            First read:
-            - GEMINI.md
-            - PROJECT_PLAN.md
-            - AGENT_RULES.md
-
-            Complete EXACTLY ONE very small, meaningful,
-            currently incomplete project task.
-
-            IMPORTANT:
-            Keep the task extremely narrowly scoped.
-
-            Do not explore unrelated parts of the repository.
-            Do not redesign existing architecture.
-            Do not implement multiple tasks.
-
-            Your process:
-            1. Inspect only files relevant to the selected task.
-            2. Implement the task.
-            3. Run the relevant test or validation.
-            4. Fix small failures if necessary.
-            5. Create ONE Git commit.
-            6. Stop.
-
-            Rules:
-            - One task = one commit.
-            - Do not push.
-            - Do not modify .github/workflows/*
-            - Do not modify GEMINI.md.
-            - Do not modify AGENT_RULES.md.
-            - Do not create meaningless changes.
-            - Do not create whitespace-only commits.
-            - Do not expose secrets.
-            - Do not rewrite Git history.
-            - Do not force push.
-
-            If no safe meaningful task can be completed,
-            make no changes and explain why."
+          set -e
+      
+          echo "Testing OpenRouter API..."
+      
+          curl -sS \
+            -D /tmp/headers.txt \
+            -o /tmp/response.json \
+            https://openrouter.ai/api/v1/chat/completions \
+            -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "model": "qwen/qwen3-coder:free",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Reply with exactly: OPENROUTER_TEST_OK"
+                }
+              ],
+              "max_tokens": 20
+            }'
+      
+          echo "----- HTTP HEADERS -----"
+          cat /tmp/headers.txt
+      
+          echo "----- RESPONSE -----"
+          cat /tmp/response.json
 
       - name: Remove temporary OpenCode configuration
         if: always()
