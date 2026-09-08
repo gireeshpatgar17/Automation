@@ -83,6 +83,11 @@ jobs:
           echo "----- RESPONSE -----"
           cat /tmp/nemotron-response.json
 
+      - name: Install project dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
       - name: Run Nemotron coding agent
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
