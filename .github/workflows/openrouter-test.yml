@@ -1,0 +1,89 @@
+name: OpenRouter Coding Agent Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git identity
+        run: |
+          git config user.name "gireeshpatgar17"
+          git config user.email "142138870+gireeshpatgar17@users.noreply.github.com"
+          git config commit.gpgsign false
+
+      - name: Install OpenCode
+        run: |
+          curl -fsSL https://opencode.ai/install | bash
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+
+      - name: Run OpenRouter coding agent
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          opencode run \
+            --model openrouter/free \
+            "You are working on the Resume/JD Matcher project.
+
+            First read:
+            - GEMINI.md
+            - PROJECT_PLAN.md
+            - AGENT_RULES.md
+
+            Complete EXACTLY ONE very small, meaningful,
+            currently incomplete project task.
+
+            Rules:
+            1. Inspect the repository before changing anything.
+            2. Choose one small task from PROJECT_PLAN.md.
+            3. Implement it completely.
+            4. Run the relevant tests or validation.
+            5. Fix small failures if necessary.
+            6. Create ONE Git commit for the completed task.
+            7. Do not push.
+            8. Do not modify:
+               - .github/workflows/*
+               - GEMINI.md
+               - AGENT_RULES.md
+            9. Do not make meaningless changes.
+            10. Do not expose secrets.
+
+            Keep the task narrowly scoped.
+            Prefer completing one small task fully rather than
+            partially implementing several tasks."
+
+      - name: Show completed work
+        run: |
+          echo "========================================"
+          echo "Commits created during this test:"
+          echo "========================================"
+
+          git log --oneline -5
+
+          echo ""
+          echo "Working tree:"
+          git status --short
+
+      - name: Push completed work
+        run: |
+          if git diff-index --quiet HEAD --; then
+            echo "No uncommitted changes."
+          else
+            echo "ERROR: Agent left uncommitted changes."
+            exit 1
+          fi
+
+          if [ "$(git rev-list --count HEAD^..HEAD)" -gt 0 ]; then
+            git push origin HEAD:${{ github.event.repository.default_branch }}
+          fi
