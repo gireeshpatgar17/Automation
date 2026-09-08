@@ -63,7 +63,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           opencode run \
-            --model "openrouter/deepseek/deepseek-chat-v3.1:free" \
+            --model "openrouter/free" \
             --auto \
             "You are working on the Resume/JD Matcher project.
 
