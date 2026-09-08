@@ -23,17 +23,48 @@ jobs:
           git config user.email "142138870+gireeshpatgar17@users.noreply.github.com"
           git config commit.gpgsign false
 
+      - name: Record starting commit
+        run: |
+          echo "BASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
       - name: Install OpenCode
         run: |
           curl -fsSL https://opencode.ai/install | bash
           echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
 
-      - name: Run OpenRouter coding agent
+      - name: Configure OpenCode
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          cat > opencode.json <<'EOF'
+          {
+            "$schema": "https://opencode.ai/config.json",
+            "provider": {
+              "openrouter": {
+                "options": {
+                  "apiKey": "{env:OPENROUTER_API_KEY}"
+                },
+                "models": {
+                  "deepseek/deepseek-chat-v3.1:free": {}
+                }
+              }
+            }
+          }
+          EOF
+
+          echo "OpenCode configuration created."
+
+      - name: Verify OpenCode model
+        run: |
+          opencode models openrouter --refresh
+
+      - name: Run DeepSeek coding agent
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           opencode run \
-            --model openrouter/free \
+            --model "openrouter/deepseek/deepseek-chat-v3.1:free" \
+            --auto \
             "You are working on the Resume/JD Matcher project.
 
             First read:
@@ -44,46 +75,79 @@ jobs:
             Complete EXACTLY ONE very small, meaningful,
             currently incomplete project task.
 
-            Rules:
-            1. Inspect the repository before changing anything.
-            2. Choose one small task from PROJECT_PLAN.md.
-            3. Implement it completely.
-            4. Run the relevant tests or validation.
-            5. Fix small failures if necessary.
-            6. Create ONE Git commit for the completed task.
-            7. Do not push.
-            8. Do not modify:
-               - .github/workflows/*
-               - GEMINI.md
-               - AGENT_RULES.md
-            9. Do not make meaningless changes.
-            10. Do not expose secrets.
+            IMPORTANT:
+            Keep the task extremely narrowly scoped.
 
-            Keep the task narrowly scoped.
-            Prefer completing one small task fully rather than
-            partially implementing several tasks."
+            Do not explore unrelated parts of the repository.
+            Do not redesign existing architecture.
+            Do not implement multiple tasks.
+
+            Your process:
+            1. Inspect only files relevant to the selected task.
+            2. Implement the task.
+            3. Run the relevant test or validation.
+            4. Fix small failures if necessary.
+            5. Create ONE Git commit.
+            6. Stop.
+
+            Rules:
+            - One task = one commit.
+            - Do not push.
+            - Do not modify .github/workflows/*
+            - Do not modify GEMINI.md.
+            - Do not modify AGENT_RULES.md.
+            - Do not create meaningless changes.
+            - Do not create whitespace-only commits.
+            - Do not expose secrets.
+            - Do not rewrite Git history.
+            - Do not force push.
+
+            If no safe meaningful task can be completed,
+            make no changes and explain why."
+
+      - name: Remove temporary OpenCode configuration
+        if: always()
+        run: |
+          rm -f opencode.json
 
       - name: Show completed work
+        if: always()
         run: |
           echo "========================================"
-          echo "Commits created during this test:"
+          echo "OpenRouter Coding Agent Test"
           echo "========================================"
 
-          git log --oneline -5
+          COMMIT_COUNT=$(git rev-list --count "$BASE_SHA"..HEAD)
+
+          echo "Starting commit: $BASE_SHA"
+          echo "Completed commits: $COMMIT_COUNT"
+
+          if [ "$COMMIT_COUNT" -gt 0 ]; then
+            echo ""
+            echo "New commits:"
+            git log --oneline "$BASE_SHA"..HEAD
+          fi
 
           echo ""
           echo "Working tree:"
           git status --short
 
       - name: Push completed work
+        if: always()
         run: |
-          if git diff-index --quiet HEAD --; then
-            echo "No uncommitted changes."
-          else
+          COMMIT_COUNT=$(git rev-list --count "$BASE_SHA"..HEAD)
+
+          if [ "$COMMIT_COUNT" -eq 0 ]; then
+            echo "No completed task to push."
+            exit 0
+          fi
+
+          if [ -n "$(git status --porcelain)" ]; then
             echo "ERROR: Agent left uncommitted changes."
+            git status --short
             exit 1
           fi
 
-          if [ "$(git rev-list --count HEAD^..HEAD)" -gt 0 ]; then
-            git push origin HEAD:${{ github.event.repository.default_branch }}
-          fi
+          echo "Pushing $COMMIT_COUNT completed commit(s)..."
+
+          git push origin HEAD:${{ github.event.repository.default_branch }}
