@@ -1,27 +1,21 @@
 name: Daily Autonomous Development
 
 on:
-  # Automatic daily run.
-  # GitHub uses the repository's timezone unless timezone is specified.
-  schedule:
-    - cron: "0 9 * * *"
-      timezone: "Asia/Kolkata"
-
-  # Keep manual execution available for testing.
   workflow_dispatch:
     inputs:
       task_count:
-        description: "Number of microtasks (1-3)"
+        description: "Number of tasks to complete"
         required: false
-        default: "2"
+        default: "1"
+        type: string
 
 permissions:
   contents: write
 
 jobs:
-  develop:
+  autonomous-development:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
@@ -35,159 +29,122 @@ jobs:
           git config user.email "142138870+gireeshpatgar17@users.noreply.github.com"
           git config commit.gpgsign false
 
-      - name: Select daily task count
-        id: tasks
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && \
-             [ -n "${{ inputs.task_count }}" ]; then
-            TASK_COUNT="${{ inputs.task_count }}"
-          else
-            TASK_COUNT=$(( RANDOM % 3 + 1 ))
-          fi
-
-          if ! [[ "$TASK_COUNT" =~ ^[1-3]$ ]]; then
-            echo "Invalid task count: $TASK_COUNT"
-            exit 1
-          fi
-
-          echo "Today's microtask target: $TASK_COUNT"
-          echo "task_count=$TASK_COUNT" >> "$GITHUB_OUTPUT"
-
       - name: Record starting commit
         run: |
           echo "BASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
+      - name: Install project dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
       - name: Run Gemini autonomous developer
-        id: gemini
         uses: google-github-actions/run-gemini-cli@v0
         env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_CLI_TRUST_WORKSPACE: "true"
         with:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-          gemini_model: gemini-3.5-flash-lite
-
-          settings: |
+          gemini_model: gemini-3.7-flash
+          settings: |-
             {
               "general": {
                 "maxAttempts": 1
               },
               "model": {
-                "maxSessionTurns": 20
+                "maxSessionTurns": 10,
+                "summarizeToolOutput": {
+                  "run_shell_command": {
+                    "tokenBudget": 1000
+                  }
+                }
               }
             }
-
           prompt: |
+            You are the autonomous software engineer for this repository.
+
+            Your goal is to complete EXACTLY ONE small, meaningful,
+            currently incomplete development task.
+
             IMPORTANT:
-            For each microtask, keep the implementation narrowly scoped.
-            
-            Do not spend turns exploring unrelated parts of the repository.
-            Do not redesign existing architecture unless the selected task requires it.
-            Prefer completing one small task fully over partially implementing multiple tasks.
-            
-            For a single-task run, aim to:
-            1. inspect only the files relevant to the selected task
-            2. implement the change
-            3. run the relevant test
-            4. fix any small failure
-            5. commit the completed task
-            6. stop
+            - Work on ONE task only.
+            - Do not search for additional tasks after choosing one.
+            - Do not make unrelated improvements.
+            - Do not modify workflow files.
+            - Do not modify GEMINI.md.
+            - Do not modify AGENT_RULES.md.
+            - Do not modify PROJECT_PLAN.md.
+            - Do not modify secrets, repository settings, or GitHub configuration.
+            - Do not push; the workflow will push your commit.
+            - Do not rewrite Git history.
+            - Do not create an empty or meaningless commit.
 
-            Today's target is:
-            ${{ steps.tasks.outputs.task_count }} microtasks.
+            FIRST:
+            1. Read PROJECT_PLAN.md.
+            2. Read AGENT_RULES.md.
+            3. Inspect only the files relevant to the selected task.
 
-            Your job is to progressively develop the actual
-            Resume/JD Matcher project.
+            TASK SELECTION:
+            - Choose the smallest useful unfinished task from PROJECT_PLAN.md.
+            - Prefer a task that can realistically be completed and tested
+              within this single session.
+            - Do not start a large feature.
+            - Do not redesign existing architecture unless the selected task
+              explicitly requires it.
 
-            RULES:
+            IMPLEMENTATION:
+            - Make the smallest clean implementation that completes the task.
+            - Follow the existing project structure and coding style.
+            - Add or update tests when appropriate.
+            - Do not add unnecessary dependencies.
 
-            1. Inspect the current repository before choosing work.
+            TESTING:
+            - Run the relevant tests.
+            - If the relevant tests fail because of your implementation,
+              fix the implementation and test again.
+            - Do not spend the session fixing unrelated pre-existing problems.
 
-            2. Select meaningful incomplete tasks from PROJECT_PLAN.md.
+            GIT:
+            - Create EXACTLY ONE commit if meaningful work was completed.
+            - Use a conventional commit message:
+              feat:, fix:, test:, refactor:, or docs:.
+            - Ensure all changes belonging to the task are included.
+            - Do not leave generated build artifacts or temporary files.
 
-            3. Work on ONE microtask at a time.
+            STOP:
+            After the task is implemented, tested, and committed, STOP.
+            Do not begin another task.
 
-            4. Each microtask must:
-               - meaningfully improve the project
-               - be small and focused
-               - preserve existing functionality
-               - be testable
-
-            5. After each microtask:
-               - inspect the changes
-               - run appropriate tests/validation
-               - fix reasonable problems
-
-            6. After successful validation, create ONE Git commit
-               for that microtask.
-
-            7. One microtask = one commit.
-
-            8. DO NOT push anything.
-               GitHub Actions will push the commits.
-
-            9. NEVER modify:
-               - .github/workflows/*
-               - GEMINI.md
-               - AGENT_RULES.md
-
-            10. NEVER:
-                - create meaningless commits
-                - make whitespace-only changes
-                - fabricate project progress
-                - force push
-                - rewrite history
-                - expose secrets
-
-            11. If a task cannot be safely completed:
-                revert its uncommitted changes and move on only if safe.
-
-            12. Stop when:
-                - the requested number of meaningful tasks is completed, OR
-                - no safe meaningful task remains, OR
-                - the Gemini/API quota prevents continued work.
-
-            Do not manufacture work merely to reach the task count.
-
-      - name: Remove unfinished changes
+      - name: Clean generated files
         if: always()
         run: |
-          git reset --hard HEAD
-          git clean -fd -e gemini-artifacts/
+          rm -rf src/*.egg-info
+          rm -rf *.egg-info
+          rm -rf .pytest_cache
+          rm -rf htmlcov
+          rm -f .coverage
 
-      - name: Safety check protected files
+      - name: Verify completed work
         if: always()
         run: |
+          echo "========================================"
+          echo "Daily Autonomous Development"
+          echo "========================================"
+
           COMMIT_COUNT=$(git rev-list --count "$BASE_SHA"..HEAD)
 
-          if [ "$COMMIT_COUNT" -eq 0 ]; then
-            echo "No commits were created."
-            exit 0
-          fi
-
-          CHANGED_FILES=$(git diff --name-only "$BASE_SHA"..HEAD)
-
-          if echo "$CHANGED_FILES" | grep -E \
-            '^(\.github/workflows/|GEMINI\.md$|AGENT_RULES\.md$)'; then
-            echo "ERROR: Protected file was modified."
-            git reset --hard "$BASE_SHA"
-            exit 1
-          fi
-
-      - name: Show completed work
-        if: always()
-        run: |
-          COMMIT_COUNT=$(git rev-list --count "$BASE_SHA"..HEAD)
-
-          echo "========================================"
-          echo "Daily autonomous development summary"
-          echo "Target: ${{ steps.tasks.outputs.task_count }}"
-          echo "Completed commits: $COMMIT_COUNT"
-          echo "========================================"
+          echo "Starting commit: $BASE_SHA"
+          echo "New commits: $COMMIT_COUNT"
 
           if [ "$COMMIT_COUNT" -gt 0 ]; then
+            echo ""
+            echo "Commits created:"
             git log --oneline "$BASE_SHA"..HEAD
           fi
+
+          echo ""
+          echo "Working tree:"
+          git status --short
 
       - name: Push completed work
         if: always()
@@ -195,8 +152,21 @@ jobs:
           COMMIT_COUNT=$(git rev-list --count "$BASE_SHA"..HEAD)
 
           if [ "$COMMIT_COUNT" -eq 0 ]; then
-            echo "Nothing to push."
+            echo "No completed task to push."
             exit 0
           fi
 
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "ERROR: Agent left uncommitted changes."
+            git status --short
+            exit 1
+          fi
+
+          if [ "$COMMIT_COUNT" -gt 1 ]; then
+            echo "ERROR: Agent created more than one commit."
+            git log --oneline "$BASE_SHA"..HEAD
+            exit 1
+          fi
+
+          echo "Pushing completed commit..."
           git push origin HEAD:${{ github.event.repository.default_branch }}
