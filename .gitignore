@@ -33,3 +33,8 @@ Thumbs.db
 
 # GitHub authentication credentials
 gha-creds-*.json
+
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
