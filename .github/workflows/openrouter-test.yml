@@ -117,6 +117,13 @@ jobs:
             - Do NOT rewrite Git history.
             - If you cannot safely complete a meaningful task, make no commit."
 
+      - name: Clean generated files
+        if: always()
+        run: |
+          rm -rf src/*.egg-info
+          rm -rf *.egg-info
+          rm -rf .pytest_cache
+
       - name: Remove temporary OpenCode configuration
         if: always()
         run: |
