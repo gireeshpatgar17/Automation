@@ -73,17 +73,25 @@ jobs:
                 "maxAttempts": 1
               },
               "model": {
-                "maxSessionTurns": 12
+                "maxSessionTurns": 20
               }
             }
 
           prompt: |
-            You are the autonomous developer for this repository.
-
-            First read:
-            - GEMINI.md
-            - PROJECT_PLAN.md
-            - AGENT_RULES.md
+            IMPORTANT:
+            For each microtask, keep the implementation narrowly scoped.
+            
+            Do not spend turns exploring unrelated parts of the repository.
+            Do not redesign existing architecture unless the selected task requires it.
+            Prefer completing one small task fully over partially implementing multiple tasks.
+            
+            For a single-task run, aim to:
+            1. inspect only the files relevant to the selected task
+            2. implement the change
+            3. run the relevant test
+            4. fix any small failure
+            5. commit the completed task
+            6. stop
 
             Today's target is:
             ${{ steps.tasks.outputs.task_count }} microtasks.
