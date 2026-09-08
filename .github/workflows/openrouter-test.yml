@@ -43,7 +43,7 @@ jobs:
                   "apiKey": "{env:OPENROUTER_API_KEY}"
                 },
                 "models": {
-                  "qwen/qwen3-coder:free": {}
+                  "nvidia/nemotron-3-super-120b-a12b:free": {}
                 }
               }
             }
@@ -56,45 +56,66 @@ jobs:
         run: |
           opencode models openrouter --refresh
 
-      - name: Test available free OpenRouter models
+      - name: Test Nemotron directly
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           set -e
 
-          echo "Fetching currently available free models..."
+          echo "Testing Nemotron 3 Super directly..."
 
           curl -fsS \
-            https://openrouter.ai/api/v1/models \
+            https://openrouter.ai/api/v1/chat/completions \
             -H "Authorization: Bearer $OPENROUTER_API_KEY" \
-            -o /tmp/models.json
+            -H "Content-Type: application/json" \
+            -d '{
+              "model": "nvidia/nemotron-3-super-120b-a12b:free",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Reply with exactly: NEMOTRON_TEST_OK"
+                }
+              ],
+              "max_tokens": 20
+            }' \
+            -o /tmp/nemotron-response.json
 
-          python - <<'PY'
-          import json
+          echo "----- RESPONSE -----"
+          cat /tmp/nemotron-response.json
 
-          with open("/tmp/models.json") as f:
-              data = json.load(f)
+      - name: Run Nemotron coding agent
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          opencode run \
+            --model "openrouter/nvidia/nemotron-3-super-120b-a12b:free" \
+            --auto \
+            "You are working on the Resume/JD Matcher project.
 
-          models = data.get("data", [])
+            Complete EXACTLY ONE very small, meaningful, currently incomplete project task.
 
-          print("\nFREE MODELS:\n")
+            Before making changes:
+            - Read GEMINI.md.
+            - Read PROJECT_PLAN.md.
+            - Read AGENT_RULES.md.
+            - Briefly inspect the existing project structure.
 
-          count = 0
-
-          for model in models:
-              pricing = model.get("pricing", {})
-              prompt = pricing.get("prompt")
-              completion = pricing.get("completion")
-
-              if prompt == "0" and completion == "0":
-                  model_id = model.get("id", "")
-                  name = model.get("name", "")
-
-                  print(f"{model_id}  |  {name}")
-                  count += 1
-
-          print(f"\nTotal free models found: {count}")
-          PY
+            Rules:
+            - Choose one small incomplete task from the existing project plan.
+            - Do not modify .github/workflows/*.
+            - Do not modify GEMINI.md.
+            - Do not modify AGENT_RULES.md.
+            - Do not modify unrelated files.
+            - Implement real functionality, not cosmetic or meaningless changes.
+            - Run appropriate tests after implementation.
+            - Fix the implementation if tests fail.
+            - Create EXACTLY ONE Git commit after successful completion.
+            - Use a conventional commit message such as feat:, fix:, test:, refactor:, or docs:.
+            - Use the Git identity already configured in the repository.
+            - Do NOT push.
+            - Do NOT create empty commits.
+            - Do NOT rewrite Git history.
+            - If you cannot safely complete a meaningful task, make no commit."
 
       - name: Remove temporary OpenCode configuration
         if: always()
