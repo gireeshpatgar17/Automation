@@ -33,8 +33,6 @@ jobs:
           echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
 
       - name: Configure OpenCode
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           cat > opencode.json <<'EOF'
           {
@@ -45,7 +43,7 @@ jobs:
                   "apiKey": "{env:OPENROUTER_API_KEY}"
                 },
                 "models": {
-                  "deepseek/deepseek-chat-v3.1:free": {}
+                  "qwen/qwen3-coder:free": {}
                 }
               }
             }
@@ -88,6 +86,39 @@ jobs:
       
           echo "----- RESPONSE -----"
           cat /tmp/response.json
+
+      - name: Run Qwen coding agent
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          opencode run \
+            --model "openrouter/qwen/qwen3-coder:free" \
+            --auto \
+            "You are working on the Resume/JD Matcher project.
+
+            Complete EXACTLY ONE very small, meaningful, currently incomplete project task.
+
+            Before making changes:
+            - Read GEMINI.md.
+            - Read PROJECT_PLAN.md.
+            - Read AGENT_RULES.md.
+            - Briefly inspect the existing project structure.
+
+            Rules:
+            - Choose one small incomplete task from the existing project plan.
+            - Do not modify .github/workflows/*.
+            - Do not modify GEMINI.md.
+            - Do not modify AGENT_RULES.md.
+            - Do not modify unrelated files.
+            - Implement real functionality, not cosmetic or meaningless changes.
+            - Run appropriate tests after implementation.
+            - Fix the implementation if tests fail.
+            - Create EXACTLY ONE Git commit after successful completion.
+            - Use a conventional commit message such as feat:, fix:, test:, refactor:, or docs:.
+            - Do NOT push.
+            - Do NOT create empty commits.
+            - Do NOT rewrite Git history.
+            - If you cannot safely complete a meaningful task, make no commit."
 
       - name: Remove temporary OpenCode configuration
         if: always()
